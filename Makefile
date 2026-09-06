@@ -9,7 +9,7 @@ ifeq ($(VERSION),)
 endif
 
 CFLAGS = -std=c99 -Wall -Wextra -ggdb -D_DEFAULT_SOURCE -DVERSION='"$(VERSION)"'
-INCLUDES = -Ithirdparty/conf.h -Ithirdparty/flag.h $(LUA_CFLAGS)
+INCLUDES = -Ithirdparty/conf.h -Ithirdparty/flag.h -Ithirdparty/cum.h $(LUA_CFLAGS)
 LDLIBS = $(LUA_LIBS) -lm
 
 SRC = src/main.c

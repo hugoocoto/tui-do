@@ -6,4 +6,5 @@ CompileFlags:
     - -D_DEFAULT_SOURCE
     - -I../thirdparty/conf.h
     - -I../thirdparty/flag.h
+    - -I../thirdparty/cum.h
     - -I/usr/include/lua5.1
