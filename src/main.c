@@ -19,6 +19,8 @@
 #define TAB_C TAB_S, TAB_S, "" // tab arguments for printf
 
 
+#define C "\033[%sm"
+
 #define H(...) // header - for X-macros
 
 #define LIST_OF_TASK_FIELDS()                                                          \
@@ -37,7 +39,22 @@ static struct {
         Da(Task) tasks;
         bool quiet;
         bool pretty;
-} g;
+        bool remaining;
+
+        struct {
+                const char *rst;
+                const char *da;
+                const char *op;
+                const char *na;
+                const char *de;
+        } c;
+} g = {
+        .c.rst = "0",  // no modificable
+        .c.da  = "34", // date - blue
+        .c.op  = "39", // operators - white
+        .c.na  = "33", // name - yellow
+        .c.de  = "39", // description - white
+};
 
 static void
 #define X(n, _, t, ...) t n,
@@ -123,12 +140,64 @@ tasks_free()
         Da_destroy(&g.tasks);
 }
 
-#define C "\033[%sm"
-#define RST "0"
-#define C_DA "32"
-#define C_OP "34"
-#define C_NA "33"
-#define C_DE "35"
+#define SECS_PER_MIN  60
+#define SECS_PER_HOUR (60 * SECS_PER_MIN)
+#define SECS_PER_DAY  (24 * SECS_PER_HOUR)
+#define SECS_PER_YEAR (365 * SECS_PER_DAY)
+
+static time_t
+now()
+{
+        return time(NULL);
+}
+
+static time_t
+time_diff(time_t a, time_t b)
+{
+        return a - b;
+}
+
+/* Formats diff (seconds) as "  1d  3h 00m 25s": leading zero fields are
+ * blanked out (instead of omitted) so every call returns a same-length,
+ * column-aligned string. */
+static char *
+format_remaining(time_t diff)
+{
+        static const int width[5]  = { 3, 3, 2, 2, 2 };
+        static const char unit[5]  = { 'y', 'd', 'h', 'm', 's' };
+        static char buf[32];
+        long secs = diff > 0 ? (long) diff : 0;
+        long v[5];
+        int i, n = 0, start;
+
+        v[0] = secs / SECS_PER_YEAR; secs %= SECS_PER_YEAR;
+        v[1] = secs / SECS_PER_DAY;  secs %= SECS_PER_DAY;
+        v[2] = secs / SECS_PER_HOUR; secs %= SECS_PER_HOUR;
+        v[3] = secs / SECS_PER_MIN;  secs %= SECS_PER_MIN;
+        v[4] = secs;
+
+        for (start = 0; start < 4 && v[start] == 0; start++);
+
+        for (i = 0; i < 5; i++) {
+                if (i < start)
+                        n += snprintf(buf + n, sizeof buf - n, "%*s", width[i] + 1, "");
+                else if (i == start)
+                        n += snprintf(buf + n, sizeof buf - n, "%*ld%c", width[i], v[i], unit[i]);
+                else
+                        n += snprintf(buf + n, sizeof buf - n, "%0*ld%c", width[i], v[i], unit[i]);
+                if (i < 4) buf[n++] = ' ';
+        }
+        buf[n] = 0;
+
+        return buf;
+}
+
+static char *
+date_str(time_t t)
+{
+        if (g.remaining) return format_remaining(time_diff(t, now()));
+        return trim(ctime(&t), '\n');
+}
 
 static void
 tasks_print()
@@ -138,16 +207,16 @@ tasks_print()
                 time_t t = (time_t) task->date;
                 if (g.pretty) {
                         printf(C "[" C "%s" C "]" C " " C "%s" C,
-                               C_OP, C_DA, trim(ctime(&t), '\n'),
-                               C_OP, RST, C_NA, task->name, RST);
+                               g.c.op, g.c.da, date_str(t),
+                               g.c.op, g.c.rst, g.c.na, task->name, g.c.rst);
                         if (task->desc && task->desc[0]) {
                                 printf(C ":" C " " C "%s" C,
-                                       C_OP, RST, C_DE,
-                                       task->desc, RST);
+                                       g.c.op, g.c.rst, g.c.de,
+                                       task->desc, g.c.rst);
                         }
                         printf("\n");
                 } else {
-                        printf("[%s] %s", trim(ctime(&t), '\n'), task->name);
+                        printf("[%s] %s", date_str(t), task->name);
                         if (task->desc && task->desc[0]) {
                                 printf(": %s", task->desc);
                         }
@@ -209,7 +278,7 @@ load_config(const char *config_path)
 int
 main(int argc, char **argv)
 {
-        const char *version, *config_path, *quiet, *plain;
+        const char *version, *config_path, *quiet, *plain, *remaining;
         int ret;
 
         flag_program(.name = "tui-do", .help = "A terminal todo manager");
@@ -218,6 +287,7 @@ main(int argc, char **argv)
                  .help = "Path to config file");
         flag_add(&quiet, "--quiet", .help = "Suppress task output");
         flag_add(&plain, "--plain", .help = "Use plain output");
+        flag_add(&remaining, "--remaining", .help = "Show time left instead of the due date");
 
         if (flag_parse(&argc, &argv)) {
                 flag_show_help(STDOUT_FILENO);
@@ -234,8 +304,9 @@ main(int argc, char **argv)
                 return 0;
         }
 
-        g.quiet  = quiet != NULL;
-        g.pretty = plain == NULL;
+        g.quiet     = quiet != NULL;
+        g.pretty    = plain == NULL;
+        g.remaining = remaining != NULL;
 
         ret = load_config(config_path);
 
