@@ -1,4 +1,6 @@
 #include <stdbool.h>
+#include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #define INCLUDE_CONF_IMPLEMENTATION
@@ -12,13 +14,18 @@
 
 #define DEFAULT_CONFIG "config.lua"
 
+#define TAB_S 4                // tab size
+#define TAB "%*.*s"            // tab format for printf
+#define TAB_C TAB_S, TAB_S, "" // tab arguments for printf
+
+
 #define H(...) // header - for X-macros
 
-#define LIST_OF_TASK_FIELDS()                                                  \
-        H(name, required, type, luatype, defvalue, note)                       \
-        X(name, true, const char *, str, NULL, "the name of the task")         \
-        X(desc, false, const char *, str, NULL, "the description of the task") \
-        X(timestamp, true, int, int, 0, "the deadline of the task")
+#define LIST_OF_TASK_FIELDS()                                                          \
+        H(name, required, type, luatype, defvalue, copy, note)                         \
+        X(name, true, const char *, str, NULL, strdup, "the name of the task")         \
+        X(desc, false, const char *, str, NULL, strdup, "the description of the task") \
+        X(date, true, int, int, 0, ((int (*)(int)) 0), "the deadline of the task")
 
 typedef struct Task {
 #define X(n, _, t, ...) t n;
@@ -27,13 +34,14 @@ typedef struct Task {
 } Task;
 
 static struct {
-        int quiet;
         Da(Task) tasks;
+        bool quiet;
+        bool pretty;
 } g;
 
 static void
 #define X(n, _, t, ...) t n,
-process_task(LIST_OF_TASK_FIELDS() int unused)
+task_append(LIST_OF_TASK_FIELDS() int unused)
 #undef X
 {
         Unused(unused);
@@ -44,6 +52,108 @@ process_task(LIST_OF_TASK_FIELDS() int unused)
         };
 
         Da_append(&g.tasks, t);
+}
+
+int
+task_compare(const void *t1, const void *t2)
+{
+        return ((Task *) t1)->date - ((Task *) t2)->date;
+}
+
+void
+tasks_sort()
+{
+        qsort(g.tasks.items, g.tasks.count, sizeof *g.tasks.items, task_compare);
+}
+
+static void
+task_dump(const char *filename)
+{
+        FILE *f = fopen(filename, "w");
+        if (!f) {
+                printf("Can not dump tasks to file %s\n", filename);
+                return;
+        }
+
+        fprintf(f, "Tasks = {\n");
+        Da_foreach(task, g.tasks)
+        {
+                fprintf(f, TAB "{\n", TAB_C);
+                fprintf(f, TAB TAB "name = \"%s\",\n", TAB_C, TAB_C, task->name);
+                if (task->desc) fprintf(f, TAB TAB "desc = \"%s\",\n", TAB_C, TAB_C, task->desc);
+
+                {
+                        time_t t      = (time_t) task->date;
+                        struct tm *tm = localtime(&t);
+                        fprintf(f, TAB TAB "date = os.time({ ", TAB_C, TAB_C);
+                        if (tm->tm_year) fprintf(f, "year = %d, ", tm->tm_year + 1900);
+                        if (tm->tm_mon) fprintf(f, "month = %d, ", tm->tm_mon + 1);
+                        if (tm->tm_mday) fprintf(f, "day = %d, ", tm->tm_mday);
+                        if (tm->tm_hour) fprintf(f, "hour = %d, ", tm->tm_hour);
+                        if (tm->tm_min) fprintf(f, "min = %d, ", tm->tm_min);
+                        if (tm->tm_sec) fprintf(f, "sec = %d, ", tm->tm_sec);
+                        fprintf(f, "}),\n");
+                }
+
+                fprintf(f, TAB "},\n", TAB_C);
+        }
+        fprintf(f, "}\n");
+
+        fclose(f);
+}
+
+static char *
+trim(char *str, char chr)
+{
+        char *c;
+        if ((c = strchr(str, chr))) {
+                *c = 0;
+        }
+        return str;
+}
+
+static void
+tasks_free()
+{
+        Da_foreach(task, g.tasks)
+        {
+                free((void *) task->name);
+                free((void *) task->desc);
+        }
+        Da_destroy(&g.tasks);
+}
+
+#define C "\033[%sm"
+#define RST "0"
+#define C_DA "32"
+#define C_OP "34"
+#define C_NA "33"
+#define C_DE "35"
+
+static void
+tasks_print()
+{
+        Da_foreach(task, g.tasks)
+        {
+                time_t t = (time_t) task->date;
+                if (g.pretty) {
+                        printf(C "[" C "%s" C "]" C " " C "%s" C,
+                               C_OP, C_DA, trim(ctime(&t), '\n'),
+                               C_OP, RST, C_NA, task->name, RST);
+                        if (task->desc && task->desc[0]) {
+                                printf(C ":" C " " C "%s" C,
+                                       C_OP, RST, C_DE,
+                                       task->desc, RST);
+                        }
+                        printf("\n");
+                } else {
+                        printf("[%s] %s", trim(ctime(&t), '\n'), task->name);
+                        if (task->desc && task->desc[0]) {
+                                printf(": %s", task->desc);
+                        }
+                        printf("\n");
+                }
+        }
 }
 
 static int
@@ -67,16 +177,20 @@ load_config(const char *config_path)
         }
 
         for (int i = 1; i <= len; i++) {
-#define X(_name, _required, _type, _luatype, _default, ...)                                            \
+#define X(_name, _required, _type, _luatype, _default, _copy, ...)                                     \
         do {                                                                                           \
                 if (!_required) {                                                                      \
                         _name = _default;                                                              \
-                        Conf_get_##_luatype(conf, &_name, "Tasks.%d." #_name, i);                      \
+                        if (!Conf_get_##_luatype(conf, &_name, "Tasks.%d." #_name, i)) {               \
+                                if (_copy) _name = _copy(_name);                                       \
+                        }                                                                              \
                 } else {                                                                               \
                         if (Conf_get_##_luatype(conf, &_name, "Tasks.%d." #_name, i)) {                \
                                 fprintf(stderr, "load_config: Tasks[%d]." #_name " is required\n", i); \
                                 Conf_close(conf);                                                      \
                                 return 1;                                                              \
+                        } else {                                                                       \
+                                if (_copy) _name = _copy(_name);                                       \
                         }                                                                              \
                 }                                                                                      \
         } while (0);
@@ -84,7 +198,7 @@ load_config(const char *config_path)
 #undef X
 
 #define X(n, ...) n,
-                process_task(LIST_OF_TASK_FIELDS() 0);
+                task_append(LIST_OF_TASK_FIELDS() 0);
 #undef X
         }
 
@@ -95,7 +209,7 @@ load_config(const char *config_path)
 int
 main(int argc, char **argv)
 {
-        const char *version, *config_path, *quiet;
+        const char *version, *config_path, *quiet, *plain;
         int ret;
 
         flag_program(.name = "tui-do", .help = "A terminal todo manager");
@@ -103,6 +217,7 @@ main(int argc, char **argv)
         flag_add(&config_path, "--config", .nargs = 1, .defaults = DEFAULT_CONFIG,
                  .help = "Path to config file");
         flag_add(&quiet, "--quiet", .help = "Suppress task output");
+        flag_add(&plain, "--plain", .help = "Use plain output");
 
         if (flag_parse(&argc, &argv)) {
                 flag_show_help(STDOUT_FILENO);
@@ -115,12 +230,21 @@ main(int argc, char **argv)
                 printf("Copyright (C) 2026 Hugo Coto\n");
                 printf("This is free software: you are free to change and redistribute it.\n");
                 printf("There is NO WARRANTY, to the extent permitted by law.\n");
+                flag_free();
                 return 0;
         }
 
-        g.quiet = quiet != NULL;
+        g.quiet  = quiet != NULL;
+        g.pretty = plain == NULL;
 
         ret = load_config(config_path);
+
+        tasks_sort();
+        tasks_print();
+
+        if (ret == 0) task_dump(config_path);
+
+        tasks_free();
         flag_free();
         return ret;
 }

@@ -14,3 +14,11 @@ can add, see, edit and remove tasks.
 
 What I love about this program is that I can call it from the bashrc with
 the --quiet flag and the *until monday* option, and only triggers when I have something to do ***now***.
+
+## Limitations
+
+Task dates are stored as a 32-bit `int` (seconds since epoch), so they will
+overflow on 2038-01-19 03:14:07 UTC (the [Year 2038 problem](https://en.wikipedia.org/wiki/Year_2038_problem)).
+Loading a config with a date past that point will fail with an error instead
+of corrupting data, but if this program is still running by then, `date`
+needs to become a 64-bit type.
