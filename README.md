@@ -16,6 +16,16 @@ the new files are written to the main one.
 What I love about this program is that I can call it from the bashrc with
 the --quiet flag and the *until monday* option, and only triggers when I have something to do ***now***.
 
+## Usage
+
+`todo`: All the tasks
+`todo --in 7`: The tasks for the next 7 days
+`todo --week`: The tasks for this week (until Monday)
+
+## Build
+
+Just run `make`. It's tested only in linux.
+
 ## Limitations
 
 Task dates are stored as a 32-bit `int` (seconds since epoch), so they will
