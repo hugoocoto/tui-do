@@ -46,6 +46,8 @@ static struct {
         bool verbose;
         bool pretty;
         bool remaining;
+        bool has_until;
+        time_t until;
         int tab_size;
 
         struct {
@@ -253,6 +255,7 @@ tasks_print()
         Da_foreach(task, g.tasks)
         {
                 time_t t = (time_t) task->date;
+                if (g.has_until && t >= g.until) continue;
                 if (g.pretty) {
                         fprintf(stdout, C "[" C "%s" C "]" C " " C "%s" C,
                                 g.c.op, task->overdued ? g.c.od : g.c.da, date_str(t),
@@ -326,7 +329,7 @@ load_config(const char *config_path)
 int
 main(int argc, char **argv)
 {
-        const char *version, *verbose, *plain, *remaining, *c_tab_size;
+        const char *version, *verbose, *plain, *remaining, *c_tab_size, *in, *week;
         int ret;
 
         flag_program(.name = "tui-do", .help = "A terminal todo manager");
@@ -335,6 +338,8 @@ main(int argc, char **argv)
         flag_add(&plain, "--plain", .help = "Use plain output");
         flag_add(&c_tab_size, "--tabsize", .defaults = "4", .help = "Tab size for dumping", .nargs = 1);
         flag_add(&remaining, "--remaining", .help = "Show time left instead of the due date");
+        flag_add(&in, "--in", .help = "Only show tasks due in the next N days", .nargs = 1);
+        flag_add(&week, "--week", .help = "Only show tasks due until next Monday (exclusive)");
 
         if (flag_parse(&argc, &argv)) {
                 flag_show_help(STDOUT_FILENO);
@@ -351,14 +356,29 @@ main(int argc, char **argv)
                 return 0;
         }
 
-        char *HOME = getenv("HOME");                                             // to free
-        asprintf(&g.default_config, "%s/.config/tuido/config.lua", HOME ?: "."); // to free
+        char *HOME = getenv("HOME");                                                   // to free
+        asprintf(&g.default_config, "%s/.config/%s/config.lua", HOME ?: ".", argv[0]); // to free
 
         g.now       = time(NULL);
         g.tab_size  = atoi(c_tab_size);
         g.verbose   = verbose != NULL;
         g.pretty    = plain == NULL;
         g.remaining = remaining != NULL;
+
+        if (in) {
+                g.until     = g.now + atoi(in) * SECS_PER_DAY;
+                g.has_until = true;
+        }
+        if (week) {
+                struct tm tm    = *localtime(&g.now);
+                int days_ahead  = (1 - tm.tm_wday + 7) % 7; // 1 == Monday
+                if (days_ahead == 0) days_ahead = 7;        // today is Monday: use next week's
+                tm.tm_mday     += days_ahead;
+                tm.tm_hour = tm.tm_min = tm.tm_sec = 0;
+                time_t monday   = mktime(&tm);
+                g.until         = g.has_until && g.until < monday ? g.until : monday;
+                g.has_until     = true;
+        }
 
         ret = load_config(g.default_config);
         for (int i = 1; i < argc; i++) {

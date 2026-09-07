@@ -1,4 +1,4 @@
-# [WIP] Not usable
+# TO-DO terminal task manager
 
 This is the newest version of [TODO](https://github.com/hugoocoto/todo), a many
 times used (one per laptop that I own) todo list / reminder for the terminal. 
@@ -10,7 +10,8 @@ times used (one per laptop that I own) todo list / reminder for the terminal.
 3. Get stressed because of the overdued task and the closest the new deadline is.
 
 The lua file is updated on the go, keeping your tasks always updated. You
-can add, see, edit and remove tasks. 
+can add, see, edit and remove tasks. You can load more files and the contents of
+the new files are written to the main one.
 
 What I love about this program is that I can call it from the bashrc with
 the --quiet flag and the *until monday* option, and only triggers when I have something to do ***now***.
