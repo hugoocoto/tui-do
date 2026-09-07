@@ -329,7 +329,7 @@ load_config(const char *config_path)
 int
 main(int argc, char **argv)
 {
-        const char *version, *verbose, *plain, *remaining, *c_tab_size, *in, *week;
+        const char *version, *verbose, *plain, *remaining, *overdue, *c_tab_size, *in, *week;
         int ret;
 
         flag_program(.name = "tui-do", .help = "A terminal todo manager");
@@ -338,6 +338,7 @@ main(int argc, char **argv)
         flag_add(&plain, "--plain", .help = "Use plain output");
         flag_add(&c_tab_size, "--tabsize", .defaults = "4", .help = "Tab size for dumping", .nargs = 1);
         flag_add(&remaining, "--remaining", .help = "Show time left instead of the due date");
+        flag_add(&overdue, "--overdue", .help = "Only show tasks due before now");
         flag_add(&in, "--in", .help = "Only show tasks due in the next N days", .nargs = 1);
         flag_add(&week, "--week", .help = "Only show tasks due until next Monday (exclusive)");
 
@@ -367,6 +368,10 @@ main(int argc, char **argv)
 
         if (in) {
                 g.until     = g.now + atoi(in) * SECS_PER_DAY;
+                g.has_until = true;
+        }
+        if (overdue) {
+                g.until     = g.has_until && g.until < g.now ? g.until : g.now;
                 g.has_until = true;
         }
         if (week) {
