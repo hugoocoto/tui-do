@@ -1,6 +1,10 @@
+#include <errno.h>
+#include <libgen.h>
 #include <stdbool.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <time.h>
 
 #define INCLUDE_CONF_IMPLEMENTATION
@@ -12,12 +16,13 @@
 #define VERSION "unknown"
 #endif
 
-#define DEFAULT_CONFIG "config.lua"
+#define TAB "%*.*s"                      // tab format for printf
+#define TAB_C g.tab_size, g.tab_size, "" // tab arguments for printf
 
-#define TAB_S 4                // tab size
-#define TAB "%*.*s"            // tab format for printf
-#define TAB_C TAB_S, TAB_S, "" // tab arguments for printf
-
+#define printf(fmt, ...)                                   \
+        do {                                               \
+                if (g.verbose) printf(fmt, ##__VA_ARGS__); \
+        } while (0)
 
 #define C "\033[%sm"
 
@@ -33,27 +38,33 @@ typedef struct Task {
 #define X(n, _, t, ...) t n;
         LIST_OF_TASK_FIELDS()
 #undef X
+        bool overdued;
 } Task;
 
 static struct {
         Da(Task) tasks;
-        bool quiet;
+        bool verbose;
         bool pretty;
         bool remaining;
+        int tab_size;
 
         struct {
                 const char *rst;
                 const char *da;
+                const char *od;
                 const char *op;
                 const char *na;
                 const char *de;
         } c;
+        char *default_config;
+        time_t now;
 } g = {
         .c.rst = "0",  // no modificable
-        .c.da  = "34", // date - blue
+        .c.da  = "32", // date - green
+        .c.od  = "31", // overdued date - red
         .c.op  = "39", // operators - white
-        .c.na  = "33", // name - yellow
-        .c.de  = "39", // description - white
+        .c.na  = "39", // name - white
+        .c.de  = "30", // description - light white
 };
 
 static void
@@ -67,7 +78,7 @@ task_append(LIST_OF_TASK_FIELDS() int unused)
                 LIST_OF_TASK_FIELDS()
 #undef X
         };
-
+        t.overdued = t.date <= g.now;
         Da_append(&g.tasks, t);
 }
 
@@ -83,12 +94,46 @@ tasks_sort()
         qsort(g.tasks.items, g.tasks.count, sizeof *g.tasks.items, task_compare);
 }
 
+int
+mkdirp(const char *path, mode_t perms)
+{
+        char *c;
+        char *p;
+        int s;
+
+        c = p = strdup(path);
+        while ((c = strchr(c + 1, '/'))) {
+                *c = 0;
+                s  = mkdir(p, perms);
+                *c = '/';
+                if (s && errno != EEXIST) {
+                        free(p);
+                        return s;
+                }
+        }
+
+        if (!c) {
+                s = mkdir(p, perms);
+                if (s && errno != EEXIST) {
+                        free(p);
+                        return s;
+                }
+        }
+
+        free(p);
+        return 0;
+}
+
 static void
 task_dump(const char *filename)
 {
+        char *path = dirname(strdup(filename));
+        mkdirp(path, 755);
+        free(path);
+
         FILE *f = fopen(filename, "w");
         if (!f) {
-                printf("Can not dump tasks to file %s\n", filename);
+                fprintf(stderr, "Can not dump tasks to file %s\n", filename);
                 return;
         }
 
@@ -140,16 +185,10 @@ tasks_free()
         Da_destroy(&g.tasks);
 }
 
-#define SECS_PER_MIN  60
+#define SECS_PER_MIN 60
 #define SECS_PER_HOUR (60 * SECS_PER_MIN)
-#define SECS_PER_DAY  (24 * SECS_PER_HOUR)
+#define SECS_PER_DAY (24 * SECS_PER_HOUR)
 #define SECS_PER_YEAR (365 * SECS_PER_DAY)
-
-static time_t
-now()
-{
-        return time(NULL);
-}
 
 static time_t
 time_diff(time_t a, time_t b)
@@ -159,24 +198,33 @@ time_diff(time_t a, time_t b)
 
 /* Formats diff (seconds) as "  1d  3h 00m 25s": leading zero fields are
  * blanked out (instead of omitted) so every call returns a same-length,
- * column-aligned string. */
+ * column-aligned string. A negative diff (overdue) is formatted as its
+ * absolute value prefixed with '-', e.g. "-  1d  3h 00m 25s". */
 static char *
 format_remaining(time_t diff)
 {
-        static const int width[5]  = { 3, 3, 2, 2, 2 };
-        static const char unit[5]  = { 'y', 'd', 'h', 'm', 's' };
+        static const int width[5] = { 3, 3, 2, 2, 2 };
+        static const char unit[5] = { 'y', 'd', 'h', 'm', 's' };
         static char buf[32];
-        long secs = diff > 0 ? (long) diff : 0;
+        bool neg  = diff < 0;
+        long secs = neg ? -(long) diff : (long) diff;
         long v[5];
         int i, n = 0, start;
 
-        v[0] = secs / SECS_PER_YEAR; secs %= SECS_PER_YEAR;
-        v[1] = secs / SECS_PER_DAY;  secs %= SECS_PER_DAY;
-        v[2] = secs / SECS_PER_HOUR; secs %= SECS_PER_HOUR;
-        v[3] = secs / SECS_PER_MIN;  secs %= SECS_PER_MIN;
+        v[0] = secs / SECS_PER_YEAR;
+        secs %= SECS_PER_YEAR;
+        v[1] = secs / SECS_PER_DAY;
+        secs %= SECS_PER_DAY;
+        v[2] = secs / SECS_PER_HOUR;
+        secs %= SECS_PER_HOUR;
+        v[3] = secs / SECS_PER_MIN;
+        secs %= SECS_PER_MIN;
         v[4] = secs;
 
-        for (start = 0; start < 4 && v[start] == 0; start++);
+        for (start = 0; start < 4 && v[start] == 0; start++)
+                ;
+
+        buf[n++] = neg ? '-' : ' ';
 
         for (i = 0; i < 5; i++) {
                 if (i < start)
@@ -195,7 +243,7 @@ format_remaining(time_t diff)
 static char *
 date_str(time_t t)
 {
-        if (g.remaining) return format_remaining(time_diff(t, now()));
+        if (g.remaining) return format_remaining(time_diff(t, g.now));
         return trim(ctime(&t), '\n');
 }
 
@@ -206,21 +254,21 @@ tasks_print()
         {
                 time_t t = (time_t) task->date;
                 if (g.pretty) {
-                        printf(C "[" C "%s" C "]" C " " C "%s" C,
-                               g.c.op, g.c.da, date_str(t),
-                               g.c.op, g.c.rst, g.c.na, task->name, g.c.rst);
+                        fprintf(stdout, C "[" C "%s" C "]" C " " C "%s" C,
+                                g.c.op, task->overdued ? g.c.od : g.c.da, date_str(t),
+                                g.c.op, g.c.rst, g.c.na, task->name, g.c.rst);
                         if (task->desc && task->desc[0]) {
-                                printf(C ":" C " " C "%s" C,
-                                       g.c.op, g.c.rst, g.c.de,
-                                       task->desc, g.c.rst);
+                                fprintf(stdout, C ":" C " " C "%s" C,
+                                        g.c.op, g.c.rst, g.c.de,
+                                        task->desc, g.c.rst);
                         }
-                        printf("\n");
+                        fprintf(stdout, "\n");
                 } else {
-                        printf("[%s] %s", date_str(t), task->name);
+                        fprintf(stdout, "[%s] %s", date_str(t), task->name);
                         if (task->desc && task->desc[0]) {
-                                printf(": %s", task->desc);
+                                fprintf(stdout, ": %s", task->desc);
                         }
-                        printf("\n");
+                        fprintf(stdout, "\n");
                 }
         }
 }
@@ -234,8 +282,8 @@ load_config(const char *config_path)
         LIST_OF_TASK_FIELDS()
 #undef X
 
+        printf("Loading config file '%s'\n", config_path);
         if (Conf_open(&conf, config_path) != CONF_OK) {
-                fprintf(stderr, "load_config: could not open '%s'\n", config_path);
                 return 1;
         }
 
@@ -251,7 +299,7 @@ load_config(const char *config_path)
                 if (!_required) {                                                                      \
                         _name = _default;                                                              \
                         if (!Conf_get_##_luatype(conf, &_name, "Tasks.%d." #_name, i)) {               \
-                                if (_copy) _name = _copy(_name);                                       \
+                                if (_copy != NULL) _name = _copy(_name);                               \
                         }                                                                              \
                 } else {                                                                               \
                         if (Conf_get_##_luatype(conf, &_name, "Tasks.%d." #_name, i)) {                \
@@ -259,7 +307,7 @@ load_config(const char *config_path)
                                 Conf_close(conf);                                                      \
                                 return 1;                                                              \
                         } else {                                                                       \
-                                if (_copy) _name = _copy(_name);                                       \
+                                if (_copy != NULL) _name = _copy(_name);                               \
                         }                                                                              \
                 }                                                                                      \
         } while (0);
@@ -278,15 +326,14 @@ load_config(const char *config_path)
 int
 main(int argc, char **argv)
 {
-        const char *version, *config_path, *quiet, *plain, *remaining;
+        const char *version, *verbose, *plain, *remaining, *c_tab_size;
         int ret;
 
         flag_program(.name = "tui-do", .help = "A terminal todo manager");
         flag_add(&version, "--version", .help = "Show version and exit");
-        flag_add(&config_path, "--config", .nargs = 1, .defaults = DEFAULT_CONFIG,
-                 .help = "Path to config file");
-        flag_add(&quiet, "--quiet", .help = "Suppress task output");
+        flag_add(&verbose, "--verbose", .help = "Show more output");
         flag_add(&plain, "--plain", .help = "Use plain output");
+        flag_add(&c_tab_size, "--tabsize", .defaults = "4", .help = "Tab size for dumping", .nargs = 1);
         flag_add(&remaining, "--remaining", .help = "Show time left instead of the due date");
 
         if (flag_parse(&argc, &argv)) {
@@ -296,24 +343,32 @@ main(int argc, char **argv)
         }
 
         if (version) {
-                printf("tui-do version %s (%s %s)\n", VERSION, __DATE__, __TIME__);
-                printf("Copyright (C) 2026 Hugo Coto\n");
-                printf("This is free software: you are free to change and redistribute it.\n");
-                printf("There is NO WARRANTY, to the extent permitted by law.\n");
+                fprintf(stdout, "%s version %s (%s %s)\n", argv[0], VERSION, __DATE__, __TIME__);
+                fprintf(stdout, "Copyright (C) 2026 Hugo Coto\n");
+                fprintf(stdout, "This is free software: you are free to change and redistribute it.\n");
+                fprintf(stdout, "There is NO WARRANTY, to the extent permitted by law.\n");
                 flag_free();
                 return 0;
         }
 
-        g.quiet     = quiet != NULL;
+        char *HOME = getenv("HOME");                                             // to free
+        asprintf(&g.default_config, "%s/.config/tuido/config.lua", HOME ?: "."); // to free
+
+        g.now       = time(NULL);
+        g.tab_size  = atoi(c_tab_size);
+        g.verbose   = verbose != NULL;
         g.pretty    = plain == NULL;
         g.remaining = remaining != NULL;
 
-        ret = load_config(config_path);
+        ret = load_config(g.default_config);
+        for (int i = 1; i < argc; i++) {
+                load_config(argv[i]);
+        }
 
         tasks_sort();
         tasks_print();
 
-        if (ret == 0) task_dump(config_path);
+        task_dump(g.default_config);
 
         tasks_free();
         flag_free();

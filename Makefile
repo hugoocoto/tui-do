@@ -13,7 +13,7 @@ INCLUDES = -Ithirdparty/conf.h -Ithirdparty/flag.h -Ithirdparty/cum.h $(LUA_CFLA
 LDLIBS = $(LUA_LIBS) -lm
 
 SRC = src/main.c
-BIN = tui-do
+BIN = todo
 
 all: $(BIN)
 
