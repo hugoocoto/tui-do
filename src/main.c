@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <errno.h>
 #include <libgen.h>
 #include <stdbool.h>
@@ -5,7 +6,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <time.h>
+#include <unistd.h>
 
 #define INCLUDE_CONF_IMPLEMENTATION
 #include "conf.h"
@@ -81,6 +84,10 @@ task_append(LIST_OF_TASK_FIELDS() int unused)
 #undef X
         };
         t.overdued = t.date <= g.now;
+        if (t.name == NULL || t.name[0] == 0 || t.date == 0) {
+                printf("Could not add task: Invalid task");
+                return;
+        }
         Da_append(&g.tasks, t);
 }
 
@@ -165,6 +172,74 @@ task_dump(const char *filename)
 
         fclose(f);
 }
+
+typedef Da(char *) Command;
+
+void
+command_add(Command *c, char *arg)
+{
+        Da_append(c, arg);
+}
+
+void
+command_add_many(Command *c, ...)
+{
+        va_list ap;
+        va_start(ap, c);
+        while (1) {
+                char *arg = va_arg(ap, char *);
+                if (arg == NULL) break;
+                command_add(c, arg);
+        }
+        va_end(ap);
+}
+
+// ensure that the list is null terminated
+#define command_add_many(comm_ptr, ...) command_add_many(comm_ptr, ##__VA_ARGS__, NULL)
+
+// returns pid
+int
+command_run_async(Command c)
+{
+        int pid;
+        switch ((pid = fork())) {
+        case -1:
+                fprintf(stderr, "command_run_async: fork fails\n");
+                return -1;
+        case 0:
+                if (c.count > 1) {
+                        Da_append(&c, NULL);
+                        execvp(c.items[0], c.items);
+                        fprintf(stderr, "command_run_async: execvp fails: %s\n", strerror(errno));
+                }
+                exit(1);
+        default:
+                return pid;
+        }
+}
+
+// returns command c exit code
+int
+command_run_sync(Command c)
+{
+        int state = 0;
+        int pid   = command_run_async(c);
+
+        if (pid < 0) {
+                fprintf(stderr, "command_run_sync: invalid command\n");
+                return -1;
+        }
+        assert(pid > 0); // assert that child does not return
+
+        errno = 0;
+        if (waitpid(pid, &state, 0) == -1) {
+                fprintf(stderr, "command_run_sync: waitpid fails: %s\n", strerror(errno));
+                return -1;
+        }
+
+        return state;
+}
+
 
 static char *
 trim(char *str, char chr)
@@ -329,12 +404,14 @@ load_config(const char *config_path)
 int
 main(int argc, char **argv)
 {
-        const char *version, *verbose, *plain, *remaining, *overdue, *c_tab_size, *in, *week;
+        const char *version, *verbose, *plain, *remaining, *overdue, *c_tab_size, *in, *week, *new;
+        bool list_tasks = true; // list tasks by default
         int ret;
 
         flag_program(.name = "tui-do", .help = "A terminal todo manager");
         flag_add(&version, "--version", .help = "Show version and exit");
         flag_add(&verbose, "--verbose", .help = "Show more output");
+        flag_add(&new, "--new", .help = "Create a new task");
         flag_add(&plain, "--plain", .help = "Use plain output");
         flag_add(&c_tab_size, "--tabsize", .defaults = "4", .help = "Tab size for dumping", .nargs = 1);
         flag_add(&remaining, "--remaining", .help = "Show time left instead of the due date");
@@ -375,14 +452,54 @@ main(int argc, char **argv)
                 g.has_until = true;
         }
         if (week) {
-                struct tm tm    = *localtime(&g.now);
-                int days_ahead  = (1 - tm.tm_wday + 7) % 7; // 1 == Monday
-                if (days_ahead == 0) days_ahead = 7;        // today is Monday: use next week's
-                tm.tm_mday     += days_ahead;
+                struct tm tm   = *localtime(&g.now);
+                int days_ahead = (1 - tm.tm_wday + 7) % 7; // 1 == Monday
+                if (days_ahead == 0) days_ahead = 7;       // today is Monday: use next week's
+                tm.tm_mday += days_ahead;
                 tm.tm_hour = tm.tm_min = tm.tm_sec = 0;
-                time_t monday   = mktime(&tm);
-                g.until         = g.has_until && g.until < monday ? g.until : monday;
-                g.has_until     = true;
+
+                time_t monday = mktime(&tm);
+                g.until       = g.has_until && g.until < monday ? g.until : monday;
+                g.has_until   = true;
+        }
+
+        if (new) {
+                list_tasks = true; // list task after the new one is created.
+                                   // Change to false to skip printing tasks.
+                char *editor = getenv("EDITOR");
+                char tmp[]   = "/tmp/todo/XXXXXX.lua";
+
+                char *path = dirname(strdup(tmp));
+                mkdirp(path, 755);
+                free(path);
+                mkstemps(tmp, strlen(".lua"));
+
+                FILE *f = fopen(tmp, "w");
+                if (!f) {
+                        fprintf(stderr, "File %s can not be written\n", tmp);
+                } else {
+                        struct tm *tm = localtime(&g.now);
+                        fprintf(f, "Tasks = {\n");
+                        fprintf(f, TAB "{\n", TAB_C);
+                        fprintf(f, TAB TAB "name = \"\",\n", TAB_C, TAB_C);
+                        fprintf(f, TAB TAB "desc = \"\",\n", TAB_C, TAB_C);
+                        fprintf(f, TAB TAB "date = os.time({ year = %d, month = %d, day = %d, hour = %d, }),\n", TAB_C, TAB_C, tm->tm_year + 1900, tm->tm_mon, tm->tm_mday, tm->tm_hour);
+                        fprintf(f, TAB "},\n", TAB_C);
+                        fprintf(f, "}\n");
+                        fflush(f);
+                        fclose(f);
+                }
+
+                if (!editor) {
+                        fprintf(stderr, "env var EDITOR not set:\n");
+                        fprintf(stderr, "Edit %s by hand, then run `%s %s`\n", tmp, argv[0], tmp);
+                } else {
+                        Command c = { 0 };
+                        int status;
+                        command_add_many(&c, editor, tmp);
+                        status = command_run_sync(c);
+                        if (status == 0) load_config(tmp);
+                }
         }
 
         ret = load_config(g.default_config);
@@ -390,8 +507,10 @@ main(int argc, char **argv)
                 load_config(argv[i]);
         }
 
-        tasks_sort();
-        tasks_print();
+        if (list_tasks) {
+                tasks_sort();
+                tasks_print();
+        }
 
         task_dump(g.default_config);
 
