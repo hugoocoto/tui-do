@@ -30,7 +30,11 @@ deps:
 	else \
 		for dep in $(DEPS); do \
 			if [ ! -f "$$dep/$$(basename $$dep)" ]; then \
-				url=$$(git config -f .gitmodules --get submodule.$$dep.url); \
+				case "$$dep" in \
+					thirdparty/conf.h) url=https://github.com/hugoocoto/conf ;; \
+					thirdparty/flag.h) url=https://github.com/hugoocoto/flag.h ;; \
+					thirdparty/cum.h) url=https://github.com/hugoocoto/cum.h ;; \
+				esac; \
 				echo "No .git found; cloning $$dep from $$url..."; \
 				rm -rf "$$dep"; \
 				git clone --depth 1 "$$url" "$$dep"; \
