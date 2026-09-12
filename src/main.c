@@ -324,6 +324,8 @@ date_str(time_t t)
         return trim(ctime(&t), '\n');
 }
 
+static const char *no_tasks_phrase(time_t seed);
+
 static void
 tasks_print()
 {
@@ -348,6 +350,9 @@ tasks_print()
                         }
                         fprintf(stdout, "\n");
                 }
+        }
+        if (g.tasks.count == 0) {
+                printf("%s\n", no_tasks_phrase(g.now));
         }
 }
 
@@ -517,4 +522,119 @@ main(int argc, char **argv)
         tasks_free();
         flag_free();
         return ret;
+}
+
+static const char *
+no_tasks_phrase(time_t seed)
+{
+        static const char *const list[] = {
+                "No tasks",
+                "Nothing to do",
+                "Nothing pending",
+                "Task list empty",
+                "All tasks completed",
+                "Nothing scheduled",
+                "No pending items",
+                "You're all caught up",
+                "Nothing on the list",
+                "Zero tasks remaining",
+
+                "Nothing to do. Suspicious.",
+                "Your to-do list called. It has nothing to say.",
+                "Inbox zero. Task zero. Hero zero.",
+                "Error 404: tasks not found.",
+                "The list is empty. Don't look so relieved.",
+                "Plot twist: you did everything.",
+                "Congratulations, you have defeated the to-do list.",
+                "This is not a drill. You're actually free.",
+                "Achievement unlocked: Empty Inbox.",
+                "The tasks fled. You win.",
+                "Nothing here but tumbleweeds.",
+                "Task list emptier than my coffee cup.",
+                "404: Responsibilities not found.",
+                "Even your to-do list is impressed.",
+                "Somewhere, a task is crying because it wasn't created.",
+                "This space intentionally left blank (by you, nicely done).",
+                "Your future self says thanks.",
+                "Nothing to do. Go bother someone else's to-do list.",
+                "The robots checked twice. Still nothing.",
+                "The list is so empty it echoes.",
+
+                "Small steps, repeated, become big things.",
+                "Rest is productive too.",
+                "An empty list is just tomorrow's blank page.",
+                "Discipline got you here. Enjoy it.",
+                "No tasks left. What will you create next?",
+                "You showed up, and it worked.",
+                "Consistency beats intensity.",
+                "This is what winning looks like.",
+                "Clear list, clear mind, keep going.",
+                "You did the work. Now breathe.",
+                "Momentum starts with moments like this.",
+                "Every finished task was once a blank line too.",
+                "You're exactly where discipline gets you.",
+                "Progress doesn't always look loud.",
+                "The work paid off. Look at this list.",
+                "Keep showing up. It compounds.",
+                "Nothing left because you left nothing undone.",
+                "This silence is earned.",
+                "You built this empty list one task at a time.",
+                "Proof that you finish what you start.",
+                "The best to-do list is the one you cleared.",
+                "You're not behind. You're done.",
+                "Today's effort, tomorrow's ease.",
+                "Small wins add up to this.",
+                "You earned this quiet.",
+
+                "Empty list, clear mind.",
+                "You've earned this silence.",
+                "Nothing to chase right now. Just be.",
+                "Stillness is allowed.",
+                "The mind rests when the list does.",
+                "Breathe. There's nothing pulling at you.",
+                "An empty list is a quiet room.",
+                "Nothing urgent. Nothing pending. Just now.",
+                "Peace looks like this list.",
+                "No tasks. No noise.",
+                "This is what enough feels like.",
+                "Sit with the quiet for a moment.",
+                "The list is empty. So is the worry.",
+                "Nothing to do but exist for a bit.",
+                "A clear list makes room for a clear thought.",
+
+                "Nothing scheduled. Go build something anyway.",
+                "exit code 0: success, nothing to run.",
+                "git status: nothing to commit, working tree clean.",
+                "Compiled cleanly. No warnings. No tasks.",
+                "This function returned early: nothing to do.",
+                "Task queue: empty. Worker: idle. You: free.",
+                "while (tasks) { } never even looped.",
+                "0 tasks found. 0 bugs too, hopefully.",
+                "The backlog's backlog is itself empty.",
+                "NULL tasks. Not a bug, a feature.",
+                "Stack's empty. Pop nothing. Relax.",
+                "No pending PRs on your to-do list.",
+                "The cron job ran and found nothing to do.",
+                "Build succeeded. Task list: 0 errors, 0 tasks.",
+                "Your to-do list just returned void.",
+
+                "The tasks went on strike. You won.",
+                "This list has seen better days. Kidding, this is its best day.",
+                "Nothing to do. The universe owes you one.",
+                "Somehow, everything got done. Suspicious, but we'll take it.",
+                "You've out-organized your own chaos.",
+                "Tasks: 0. Ego: slightly bigger.",
+                "This is the calm after doing the storm.",
+                "Your productivity ghosted its own to-do list.",
+                "The list looked back at you and shrugged. Empty.",
+                "Somewhere a task manager is out of a job today.",
+                "Nothing left to procrastinate on.",
+                "You ran out of things to avoid doing.",
+                "The empty list salutes you.",
+                "Go outside. The list can't stop you now.",
+                "Task list closed for lack of business.",
+        };
+        size_t len = sizeof list / sizeof list[0];
+        srand(seed);
+        return list[rand() % len];
 }
