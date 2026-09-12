@@ -14,6 +14,7 @@ LDLIBS = $(LUA_LIBS) -lm
 
 SRC = src/main.c
 BIN = todo
+DEPS = thirdparty/conf.h thirdparty/flag.h thirdparty/cum.h
 
 all: $(BIN)
 
@@ -21,9 +22,20 @@ $(BIN): $(SRC) deps
 	$(CC) $(SRC) $(CFLAGS) $(INCLUDES) -o $(BIN) $(LDLIBS)
 
 deps:
-	@if git submodule status 2>/dev/null | grep -q '^-'; then \
-		echo "Fetching submodules..."; \
-		git submodule update --init --recursive; \
+	@if [ -d .git ]; then \
+		if git submodule status 2>/dev/null | grep -q '^-'; then \
+			echo "Fetching submodules..."; \
+			git submodule update --init --recursive; \
+		fi; \
+	else \
+		for dep in $(DEPS); do \
+			if [ ! -f "$$dep/$$(basename $$dep)" ]; then \
+				url=$$(git config -f .gitmodules --get submodule.$$dep.url); \
+				echo "No .git found; cloning $$dep from $$url..."; \
+				rm -rf "$$dep"; \
+				git clone --depth 1 "$$url" "$$dep"; \
+			fi; \
+		done; \
 	fi
 
 clean:
