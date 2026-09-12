@@ -17,10 +17,16 @@ BIN = todo
 
 all: $(BIN)
 
-$(BIN): $(SRC)
+$(BIN): $(SRC) deps
 	$(CC) $(SRC) $(CFLAGS) $(INCLUDES) -o $(BIN) $(LDLIBS)
+
+deps:
+	@if git submodule status 2>/dev/null | grep -q '^-'; then \
+		echo "Fetching submodules..."; \
+		git submodule update --init --recursive; \
+	fi
 
 clean:
 	rm -f $(BIN)
 
-.PHONY: all clean
+.PHONY: all clean deps
