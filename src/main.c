@@ -409,7 +409,7 @@ load_config(const char *config_path)
 int
 main(int argc, char **argv)
 {
-        const char *version, *verbose, *plain, *remaining, *overdue, *c_tab_size, *in, *week, *new;
+        const char *version, *verbose, *plain, *remaining, *overdue, *c_tab_size, *in, *week, *new, *edit;
         bool list_tasks = true; // list tasks by default
         int ret;
 
@@ -417,6 +417,7 @@ main(int argc, char **argv)
         flag_add(&version, "--version", .help = "Show version and exit");
         flag_add(&verbose, "--verbose", .help = "Show more output");
         flag_add(&new, "--new", .help = "Create a new task");
+        flag_add(&edit, "--edit", .help = "Edit tasks");
         flag_add(&plain, "--plain", .help = "Use plain output");
         flag_add(&c_tab_size, "--tabsize", .defaults = "4", .help = "Tab size for dumping", .nargs = 1);
         flag_add(&remaining, "--remaining", .help = "Show time left instead of the due date");
@@ -506,6 +507,27 @@ main(int argc, char **argv)
                         if (status == 0) load_config(tmp);
                 }
         }
+
+        if (edit) {
+                list_tasks = true; // list task after the new one is created.
+                                   // Change to false to skip printing tasks.
+                char *editor = getenv("EDITOR");
+
+                if (!editor) {
+                        fprintf(stderr, "env var EDITOR not set:\n");
+                        fprintf(stderr, "Edit %s by hand, then run `%s %s`\n", g.default_config, argv[0], g.default_config);
+                } else {
+                        Command c = { 0 };
+                        int status;
+                        command_add_many(&c, editor, g.default_config);
+                        status = command_run_sync(c);
+                        if (status) {
+                                fprintf(stderr, "Could not open file in editor:\n");
+                                fprintf(stderr, "Edit %s by hand, then run `%s %s`\n", g.default_config, argv[0], g.default_config);
+                        }
+                }
+        }
+
 
         ret = load_config(g.default_config);
         for (int i = 1; i < argc; i++) {
