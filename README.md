@@ -46,8 +46,7 @@ keep passing the extra file on future runs.
 - `todo --in 7`: The tasks for the next 7 days
 - `todo --week`: The tasks for this week (until Monday)
 - `todo --overdue`: The tasks that are already due
-- `todo --new`: Create a template file, open it in `$EDITOR` and load it
-- automatically.
+- `todo --new`: Create a template file, open it in `$EDITOR` and load it automatically.
 - `todo --edit`: Open the main config in `$EDITOR`, used for modifying or deleting
 tasks.
 

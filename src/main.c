@@ -413,7 +413,7 @@ main(int argc, char **argv)
         bool list_tasks = true; // list tasks by default
         int ret;
 
-        flag_program(.name = "tui-do", .help = "A terminal todo manager");
+        flag_program(.help = "A terminal todo manager");
         flag_add(&version, "--version", .help = "Show version and exit");
         flag_add(&verbose, "--verbose", .help = "Show more output");
         flag_add(&new, "--new", .help = "Create a new task");
